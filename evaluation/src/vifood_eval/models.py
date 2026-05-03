@@ -114,6 +114,7 @@ class HFVisionModel(VisionModel):
             processor_kwargs["use_fast"] = cfg["processor_use_fast"]
         if "processor_kwargs" in cfg:
             processor_kwargs.update(cfg["processor_kwargs"])
+        self.processor_kwargs = processor_kwargs # save for manual resizing
         self.processor = AutoProcessor.from_pretrained(cfg["model_id"], **processor_kwargs)
 
         model_config = None
@@ -135,8 +136,14 @@ class HFVisionModel(VisionModel):
             model_kwargs["attn_implementation"] = cfg["attn_implementation"]
         torch_dtype = cfg.get("torch_dtype")
         if torch_dtype:
-            dtype_key = "dtype" if self.adapter == "qwen3_vl" else "torch_dtype"
-            model_kwargs[dtype_key] = torch_dtype
+            import torch
+            if torch_dtype == "float16": torch_dtype = torch.float16
+            elif torch_dtype == "bfloat16": torch_dtype = torch.bfloat16
+            elif torch_dtype == "float32": torch_dtype = torch.float32
+            # Safely pass both depending on what the custom model uses
+            model_kwargs["torch_dtype"] = torch_dtype
+            if self.adapter == "qwen3_vl":
+                model_kwargs["dtype"] = torch_dtype
         if "model_kwargs" in cfg:
             model_kwargs.update(cfg["model_kwargs"])
 
@@ -172,8 +179,10 @@ class HFVisionModel(VisionModel):
         response_format: dict[str, Any] | None = None,
     ) -> str:
         _ = response_format
+        max_pixels = self.processor_kwargs.get("max_pixels", None) if hasattr(self, "processor_kwargs") else None
+        
         if self.adapter == "qwen3_vl":
-            inputs = _messages_to_qwen3_inputs(self.processor, messages)
+            inputs = _messages_to_qwen3_inputs(self.processor, messages, max_pixels=max_pixels)
         elif self.adapter == "phi3_vision":
             prompt, images = _messages_to_phi(messages)
             inputs = self.processor(text=prompt, images=images, return_tensors="pt")
@@ -412,7 +421,7 @@ def _trim_generated_ids(output_ids: Any, input_ids: Any) -> Any:
         ]
 
 
-def _messages_to_qwen3_inputs(processor: Any, messages: list[dict[str, Any]]) -> Any:
+def _messages_to_qwen3_inputs(processor: Any, messages: list[dict[str, Any]], max_pixels: int | None = None) -> Any:
     converted = []
     for message in messages:
         content = []
@@ -420,7 +429,7 @@ def _messages_to_qwen3_inputs(processor: Any, messages: list[dict[str, Any]]) ->
             if part["type"] == "text":
                 content.append({"type": "text", "text": part["text"]})
             elif part["type"] == "image":
-                content.append({"type": "image", "image": _load_image(Path(part["path"]))})
+                content.append({"type": "image", "image": _load_image(Path(part["path"]), max_pixels=max_pixels)})
         converted.append({"role": message["role"], "content": content})
     inputs = processor.apply_chat_template(
         converted,
@@ -485,7 +494,14 @@ def _image_to_data_url(path: Path) -> str:
     return f"data:{mime};base64,{encoded}"
 
 
-def _load_image(path: Path) -> Any:
+def _load_image(path: Path, max_pixels: int | None = None) -> Any:
     from PIL import Image
 
-    return Image.open(path).convert("RGB")
+    image = Image.open(path).convert("RGB")
+    if max_pixels is not None:
+        w, h = image.size
+        if w * h > max_pixels:
+            scale = (max_pixels / (w * h)) ** 0.5
+            new_w, new_h = int(w * scale), int(h * scale)
+            image = image.resize((new_w, new_h), Image.Resampling.LANCZOS)
+    return image
