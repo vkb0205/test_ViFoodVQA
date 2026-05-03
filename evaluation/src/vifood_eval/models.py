@@ -112,6 +112,8 @@ class HFVisionModel(VisionModel):
             processor_kwargs["num_crops"] = cfg.get("num_crops", 16)
         if "processor_use_fast" in cfg:
             processor_kwargs["use_fast"] = cfg["processor_use_fast"]
+        if "processor_kwargs" in cfg:
+            processor_kwargs.update(cfg["processor_kwargs"])
         self.processor = AutoProcessor.from_pretrained(cfg["model_id"], **processor_kwargs)
 
         model_config = None
@@ -135,6 +137,8 @@ class HFVisionModel(VisionModel):
         if torch_dtype:
             dtype_key = "dtype" if self.adapter == "qwen3_vl" else "torch_dtype"
             model_kwargs[dtype_key] = torch_dtype
+        if "model_kwargs" in cfg:
+            model_kwargs.update(cfg["model_kwargs"])
 
         auto_model = cfg.get("auto_model", "image_text_to_text")
         if self.adapter == "qwen3_vl":

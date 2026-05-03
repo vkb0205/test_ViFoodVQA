@@ -53,7 +53,9 @@ models:
     model_id: Qwen/Qwen3-VL-2B-Instruct
     adapter: qwen3_vl
     device_map: auto
-    torch_dtype: auto
+    torch_dtype: float16 # T4 doesn't support bfloat16, so auto might fallback to float32 (9GB). float16 halves this!
+    processor_kwargs:
+      max_pixels: 501760 # limits resolution to ~700x700 to save VRAM and avoid OOM
     generation_kwargs:
       repetition_penalty: 1.05
       no_repeat_ngram_size: 6
