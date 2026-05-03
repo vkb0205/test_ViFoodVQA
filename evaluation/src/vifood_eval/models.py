@@ -140,10 +140,8 @@ class HFVisionModel(VisionModel):
             if torch_dtype == "float16": torch_dtype = torch.float16
             elif torch_dtype == "bfloat16": torch_dtype = torch.bfloat16
             elif torch_dtype == "float32": torch_dtype = torch.float32
-            # Safely pass both depending on what the custom model uses
-            model_kwargs["torch_dtype"] = torch_dtype
-            if self.adapter == "qwen3_vl":
-                model_kwargs["dtype"] = torch_dtype
+            dtype_key = "dtype" if self.adapter == "qwen3_vl" else "torch_dtype"
+            model_kwargs[dtype_key] = torch_dtype
         if "model_kwargs" in cfg:
             model_kwargs.update(cfg["model_kwargs"])
 
